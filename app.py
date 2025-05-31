@@ -16,13 +16,15 @@ app = Flask(__name__)
 @app.route("/seplan_or_download", methods=["GET"])
 def seplan_or_download():
     # Obter parâmetros de filtro da URL
-    ano = request.args.get("ano", default="%")
-    mes = request.args.get("mes", default="%")
-    descricaoacao = request.args.get("descricaoacao", default="%")
-    descricaoorcamentaria = request.args.get("descricaoorcamentaria", default="%")
-    gnd = request.args.get("gnd", default="%")
-    programaticaorcamentaria = request.args.get("programaticaorcamentaria", default="%")
-    descricaoprograma = request.args.get("descricaoprograma", default="%")
+    # Usamos .get para que, se o parâmetro não existir, ele seja None, facilitando a lógica de filtro.
+    # Se o parâmetro for uma string vazia (""), ele ainda será tratado como None após o strip.
+    ano_param = request.args.get("ano")
+    mes_param = request.args.get("mes")
+    descricaoacao_param = request.args.get("descricaoacao")
+    descricaoorcamentaria_param = request.args.get("descricaoorcamentaria")
+    gnd_param = request.args.get("gnd")
+    programaticaorcamentaria_param = request.args.get("programaticaorcamentaria")
+    descricaoprograma_param = request.args.get("descricaoprograma")
     formato_csv = request.args.get("csv", default=None)
 
     try:
@@ -51,10 +53,9 @@ def seplan_or_download():
                 excel_header_map[str(header_cell_value)] = col_idx
 
         # Mapeamento dos parâmetros da URL para os nomes EXATOS das colunas no Excel
-        # ATENÇÃO: Corrigido para "Ano" e "Mês" conforme sua última instrução.
         FILTER_MAP = {
-            "ano": "Ano", # *** CORRIGIDO: "Ano" (sem underscore) ***
-            "mes": "Mês", # *** CORRIGIDO: "Mês" (com acento e sem underscore) ***
+            "ano": "Ano", 
+            "mes": "Mês", 
             "descricaoacao": "Ação e Subtítulo", 
             "descricaoorcamentaria": "Descrição", 
             "gnd": "GND",
@@ -81,16 +82,14 @@ def seplan_or_download():
             "pago_porcento": "% Pago"
         }
         
-        # --- Implementar a Lógica de Filtragem de Linhas no Excel ---
-        filter_params = {
-            "ano": ano.strip('%').lower() if ano != '%' else None,
-            "mes": mes.strip('%').lower() if mes != '%' else None,
-            "descricaoacao": descricaoacao.strip('%').lower() if descricaoacao != '%' else None,
-            "descricaoorcamentaria": descricaoorcamentaria.strip('%').lower() if descricaoorcamentaria != '%' else None,
-            "gnd": gnd.strip('%').lower() if gnd != '%' else None,
-            "programaticaorcamentaria": programaticaorcamentaria.strip('%').lower() if programaticaorcamentaria != '%' else None,
-            "descricaoprograma": descricaoprograma.strip('%').lower() if descricaoprograma != '%' else None,
-        }
+        # --- Prepara os parâmetros de filtro ---
+        filter_params = {}
+        for param_name, _ in FILTER_MAP.items():
+            param_value = request.args.get(param_name)
+            if param_value and param_value.strip() not in ["%", ""]: # Ignora se for vazio ou "%"
+                filter_params[param_name] = param_value.strip().lower()
+            else:
+                filter_params[param_name] = None # Define como None se não houver valor válido
 
         # Definir estilos para aplicação de bordas e fonte nas células de dados
         thin_border = Border(left=Side(style='thin'), 
@@ -105,39 +104,50 @@ def seplan_or_download():
             for param_name, excel_header_name in FILTER_MAP.items():
                 param_value = filter_params.get(param_name)
 
-                if param_value is not None:
-                    col_idx = excel_header_map.get(excel_header_name)
-                    
-                    if col_idx is None:
-                        continue 
+                # Se o parâmetro não foi fornecido na URL ou está vazio/%, pula este filtro
+                if param_value is None:
+                    continue 
 
-                    excel_cell_value = ws.cell(row=r_idx, column=col_idx).value
+                col_idx = excel_header_map.get(excel_header_name)
+                if col_idx is None:
+                    continue # Se a coluna do cabeçalho não for encontrada no Excel, pula
+
+                excel_cell_value = ws.cell(row=r_idx, column=col_idx).value
+                
+                is_match = False
+                
+                # --- Lógica de filtro específica para Ano e Mês ---
+                if param_name in ["ano", "mes"]:
+                    # Tenta converter ambos para inteiro para comparação numérica segura
+                    try:
+                        excel_val_int = int(excel_cell_value)
+                        param_val_int = int(param_value)
+                        if param_val_int == excel_val_int:
+                            is_match = True
+                    except (ValueError, TypeError):
+                        # Se a conversão para inteiro falhar, tenta comparação de string
+                        cell_val_str = str(excel_cell_value).strip().lower() if excel_cell_value is not None else ""
+                        if param_value == cell_val_str:
+                            is_match = True
+                else: # Para outros campos de texto: lógica de "contém"
                     cell_val_str = str(excel_cell_value).strip().lower() if excel_cell_value is not None else ""
-
-                    is_match = False
-                    # --- Lógica de filtro para Ano e Mês (revertida para string exata) ---
-                    if param_name in ["ano", "mes"]: 
-                        if param_value == cell_val_str: # Comparação de string exata (após strip().lower())
-                            is_match = True
-                    else: # Para outros campos de texto: lógica de "contém"
-                        if param_value in cell_val_str:
-                            is_match = True
-                    
-                    if not is_match:
-                        row_hidden = True
-                        break 
+                    if param_value in cell_val_str:
+                        is_match = True
+                
+                # Se este filtro ATIVO NÃO corresponder, esconde a linha e para de verificar esta linha
+                if not is_match:
+                    row_hidden = True
+                    break 
 
             ws.row_dimensions[r_idx].hidden = row_hidden
             
             # --- APLICAR FORMATAÇÃO BÁSICA (Bordas e Fonte) para Linhas VISÍVEIS ---
-            # Isso garante que as grades e a fonte sejam aplicadas consistentemente.
             if not row_hidden:
                 for c_idx in range(data_start_col, max_excel_col + 1): # Itera por todas as colunas de dados
                     cell = ws.cell(row=r_idx, column=c_idx)
                     cell.border = thin_border # Aplica as bordas
                     cell.font = data_font    # Aplica a fonte
 
-                    # Opcional: ajustar alinhamento para números se necessário
                     if isinstance(cell.value, (int, float)):
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                     else:
@@ -163,7 +173,7 @@ def seplan_or_download():
         xlsx_data.seek(0)
 
         response = make_response(xlsx_data.getvalue())
-        response.headers["Content-Disposition"] = "attachment; filename=DadosOrcamentoConsolidado (2).xlsx"
+        response.headers["Content-Disposition"] = "attachment; filename=DadosOrcamentoConsolidado.xlsx"
         response.headers["Content-type"] = (
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
