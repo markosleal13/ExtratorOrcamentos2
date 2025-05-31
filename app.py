@@ -16,19 +16,13 @@ app = Flask(__name__)
 @app.route("/seplan_or_download", methods=["GET"])
 def seplan_or_download():
     # Obter parâmetros de filtro da URL
-    # Usamos .get para que, se o parâmetro não existir, ele seja None, facilitando a lógica de filtro.
-    # Se o parâmetro for uma string vazia (""), ele ainda será tratado como None após o strip.
-    ano_param = request.args.get("ano")
-    mes_param = request.args.get("mes")
-    descricaoacao_param = request.args.get("descricaoacao")
-    descricaoorcamentaria_param = request.args.get("descricaoorcamentaria")
-    gnd_param = request.args.get("gnd")
-    programaticaorcamentaria_param = request.args.get("programaticaorcamentaria")
-    descricaoprograma_param = request.args.get("descricaoprograma")
-    formato_csv = request.args.get("csv", default=None)
-
     try:
-        excel_file_path = os.path.join(app.root_path, 'templates', 'DadosOrcamentoConsolidado (2).xlsx')
+        # --- NOVO PRINT DE DEBUG AQUI ---
+        gnd_raw_from_url = request.args.get("gnd")
+        print(f"\n--- DEBUG INÍCIO: Valor RAW de 'gnd' da URL: '{gnd_raw_from_url}' (Tipo: {type(gnd_raw_from_url)}) ---")
+        # --------------------------------
+
+        excel_file_path = os.path.join(app.root_path, 'templates', 'DadosOrcamentoConsolidadoGeral.xlsx')
         
         if not os.path.exists(excel_file_path):
             abort(404, description=f"Arquivo de base de dados '{os.path.basename(excel_file_path)}' não encontrado na pasta 'templates'.")
@@ -57,7 +51,7 @@ def seplan_or_download():
             "ano": "Ano", 
             "mes": "Mês", 
             "descricaoacao": "Ação e Subtítulo", 
-            "descricaoorcamentaria": "Descrição", 
+            "descricaoorcamentaria": "Descrição Orçamentária", 
             "gnd": "GND",
             "programaticaorcamentaria": "Programática (Programa, Ação e Subtítulo)", 
             "descricaoprograma": "Programa", 
@@ -82,14 +76,26 @@ def seplan_or_download():
             "pago_porcento": "% Pago"
         }
         
-        # --- Prepara os parâmetros de filtro ---
+        # --- Prepara os parâmetros de filtro de forma mais robusta ---
         filter_params = {}
         for param_name, _ in FILTER_MAP.items():
-            param_value = request.args.get(param_name)
-            if param_value and param_value.strip() not in ["%", ""]: # Ignora se for vazio ou "%"
-                filter_params[param_name] = param_value.strip().lower()
+            param_value_raw = request.args.get(param_name)
+            
+            if param_value_raw is not None:
+                cleaned_value = param_value_raw.strip()
+                if cleaned_value not in ["", "%"]:
+                    filter_params[param_name] = cleaned_value.lower() 
+                else:
+                    filter_params[param_name] = None
             else:
-                filter_params[param_name] = None # Define como None se não houver valor válido
+                filter_params[param_name] = None
+        
+        print(f"\n--- DEBUG: Parâmetros de Filtro Ativos ---")
+        for k, v in filter_params.items():
+            if v is not None:
+                print(f"  {k}: '{v}'")
+        print(f"-----------------------------------------\n")
+
 
         # Definir estilos para aplicação de bordas e fonte nas células de dados
         thin_border = Border(left=Side(style='thin'), 
@@ -101,45 +107,68 @@ def seplan_or_download():
         for r_idx in range(data_start_row, ws.max_row + 1):
             row_hidden = False
             
+            # Itera sobre o FILTER_MAP para garantir a ordem e quais colunas verificar
             for param_name, excel_header_name in FILTER_MAP.items():
                 param_value = filter_params.get(param_name)
 
-                # Se o parâmetro não foi fornecido na URL ou está vazio/%, pula este filtro
+                # Se o parâmetro não foi fornecido (é None), pula este filtro para a linha atual
                 if param_value is None:
                     continue 
 
                 col_idx = excel_header_map.get(excel_header_name)
+                # Se o nome do cabeçalho do Excel não for encontrado, pula este filtro
                 if col_idx is None:
-                    continue # Se a coluna do cabeçalho não for encontrada no Excel, pula
+                    continue 
 
                 excel_cell_value = ws.cell(row=r_idx, column=col_idx).value
                 
                 is_match = False
                 
-                # --- Lógica de filtro específica para Ano e Mês ---
+                # --- DEBUG: Valores sendo comparados ---
+                print(f"  Linha {r_idx}, Coluna '{excel_header_name}' (param: '{param_name}')")
+                print(f"    Valor do Parâmetro (URL): '{param_value}' (Tipo: {type(param_value)})")
+                print(f"    Valor da Célula Excel: '{excel_cell_value}' (Tipo: {type(excel_cell_value)})")
+
+
+                # --- Lógica de filtro para Ano e Mês (com prioridade numérica) ---
                 if param_name in ["ano", "mes"]:
-                    # Tenta converter ambos para inteiro para comparação numérica segura
                     try:
-                        excel_val_int = int(excel_cell_value)
-                        param_val_int = int(param_value)
-                        if param_val_int == excel_val_int:
+                        # Tenta converter ambos para inteiro para comparação numérica
+                        excel_val_int = int(excel_cell_value) if excel_cell_value is not None else None
+                        param_val_int = int(param_value) 
+
+                        if excel_val_int is not None and param_val_int == excel_val_int:
                             is_match = True
+                            print(f"    --> MATCH! (Numérico: {param_val_int} == {excel_val_int})")
+                        else:
+                             print(f"    --> NÃO MATCH (Numérico: {param_val_int} != {excel_val_int})")
                     except (ValueError, TypeError):
-                        # Se a conversão para inteiro falhar, tenta comparação de string
+                        # Se a conversão para inteiro falhar, tenta comparação de string exata
                         cell_val_str = str(excel_cell_value).strip().lower() if excel_cell_value is not None else ""
                         if param_value == cell_val_str:
                             is_match = True
+                            print(f"    --> MATCH! (String Exata: '{param_value}' == '{cell_val_str}')")
+                        else:
+                            print(f"    --> NÃO MATCH (String Exata: '{param_value}' != '{cell_val_str}')")
+
                 else: # Para outros campos de texto: lógica de "contém"
                     cell_val_str = str(excel_cell_value).strip().lower() if excel_cell_value is not None else ""
                     if param_value in cell_val_str:
                         is_match = True
+                        print(f"    --> MATCH! (Contém: '{param_value}' IN '{cell_val_str}')")
+                    else:
+                        print(f"    --> NÃO MATCH (Contém: '{param_value}' NOT IN '{cell_val_str}')")
                 
                 # Se este filtro ATIVO NÃO corresponder, esconde a linha e para de verificar esta linha
                 if not is_match:
                     row_hidden = True
+                    print(f"    --- Linha {r_idx} SERÁ ESCONDIDA devido a '{excel_header_name}' ---")
                     break 
 
             ws.row_dimensions[r_idx].hidden = row_hidden
+            if not row_hidden:
+                print(f"  *** Linha {r_idx} PERMANECERÁ VISÍVEL ***")
+            print("-" * 50) # Separador para facilitar a leitura do debug
             
             # --- APLICAR FORMATAÇÃO BÁSICA (Bordas e Fonte) para Linhas VISÍVEIS ---
             if not row_hidden:
