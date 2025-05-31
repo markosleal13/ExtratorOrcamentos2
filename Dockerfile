@@ -19,4 +19,4 @@ EXPOSE 8000
 
 # Comando para iniciar a aplicação Flask com Gunicorn
 # O Render injeta a variável de ambiente $PORT, então a aplicação deve escutar nela.
-CMD ["gunicorn", "-b", "0.0.0.0:${PORT}", "app:app"]
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:${PORT} app:app"]
