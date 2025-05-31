@@ -1,0 +1,26 @@
+# Ambientes virtuais Python
+venv/
+.venv/
+
+# Arquivos de cache e compilação do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variáveis de ambiente (se usar .env para credenciais)
+.env
+.flaskenv
+
+# Arquivos de log e temporários
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Arquivos gerados por sistemas operacionais
+.DS_Store
+Thumbs.db
+
+# Ignorar o arquivo de settings antigo se ele não for mais usado
+# extrator_dgt/settings.py
