@@ -4,13 +4,12 @@ import platform
 from io import BytesIO, StringIO
 from datetime import datetime
 
-from flask import Flask, abort, make_response, request, render_template # Adicionado render_template
+from flask import Flask, abort, make_response, request, render_template
 from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Side, Border
 from openpyxl.utils import get_column_letter
 
 
-# App Flask
 app = Flask(__name__)
 
 @app.route("/seplan_or_download/", methods=["GET"])
@@ -27,16 +26,13 @@ def seplan_or_download():
     formato_csv = request.args.get("csv", default=None)
 
     try:
-        # --- CARREGAR O ARQUIVO EXCEL DadosOrcamentoConsolidado.xlsx COMO BASE DE DADOS ---
-        # O arquivo está na pasta 'templates' que está no mesmo nível de 'app.py'
-        excel_file_path = os.path.join(app.root_path, 'templates', 'DadosOrcamentoConsolidado.xlsx')
+        excel_file_path = os.path.join(app.root_path, 'templates', 'DadosOrcamentoConsolidado (2).xlsx')
         
-        # Verifica se o arquivo existe na pasta 'templates'
         if not os.path.exists(excel_file_path):
             abort(404, description=f"Arquivo de base de dados '{os.path.basename(excel_file_path)}' não encontrado na pasta 'templates'.")
 
         wb = load_workbook(excel_file_path)
-        ws = wb.active # Pega a planilha ativa do arquivo Excel
+        ws = wb.active
 
         # --- 1. Modificação para a Célula B4 (Data de Referência) ---
         today_date = datetime.now().strftime("%d/%m/%Y")
@@ -47,7 +43,6 @@ def seplan_or_download():
         data_start_row = 10   # Assumindo que os dados começam na linha 10
         data_start_col = 2    # Assumindo que os dados e cabeçalhos começam na Coluna B (índice 2)
 
-        # Mapear os cabeçalhos do Excel para seus índices de coluna
         excel_header_map = {}
         max_excel_col = ws.max_column
         for col_idx in range(data_start_col, max_excel_col + 1):
@@ -56,18 +51,17 @@ def seplan_or_download():
                 excel_header_map[str(header_cell_value)] = col_idx
 
         # Mapeamento dos parâmetros da URL para os nomes EXATOS das colunas no Excel
-        # ATENÇÃO: VERIFIQUE E AJUSTE ESTES NOMES PARA QUE CORRESPONDAM EXATAMENTE
-        # AOS CABEÇALHOS NO SEU ARQUIVO DadosOrcamentoConsolidado.xlsx
+        # ATENÇÃO: Corrigido para "Ano" e "Mês" conforme sua última instrução.
         FILTER_MAP = {
-            "ano": "ANO_REFERENCIA",
-            "mes": "MES_REFERENCIA",
-            "descricaoacao": "Ação e Subtítulo",
-            "descricaoorcamentaria": "Descrição",
+            "ano": "Ano", # *** CORRIGIDO: "Ano" (sem underscore) ***
+            "mes": "Mês", # *** CORRIGIDO: "Mês" (com acento e sem underscore) ***
+            "descricaoacao": "Ação e Subtítulo", 
+            "descricaoorcamentaria": "Descrição", 
             "gnd": "GND",
-            "programaticaorcamentaria": "Programática (Programa, Ação e Subtítulo)",
-            "descricaoprograma": "Programa",
-            "codigo": "Código",
-            "codigo_fonte": "Código Fonte",
+            "programaticaorcamentaria": "Programática (Programa, Ação e Subtítulo)", 
+            "descricaoprograma": "Programa", 
+            "codigo": "Código", 
+            "codigo_fonte": "Código Fonte", 
             "descricao_fonte": "Descrição Fonte",
             "funcao_subfuncao": "Função e Subfunção",
             "esfera": "Esfera",
@@ -98,6 +92,13 @@ def seplan_or_download():
             "descricaoprograma": descricaoprograma.strip('%').lower() if descricaoprograma != '%' else None,
         }
 
+        # Definir estilos para aplicação de bordas e fonte nas células de dados
+        thin_border = Border(left=Side(style='thin'), 
+                             right=Side(style='thin'), 
+                             top=Side(style='thin'), 
+                             bottom=Side(style='thin'))
+        data_font = Font(name="Arial", size=8, color="000000") # Fonte padrão para os dados
+
         for r_idx in range(data_start_row, ws.max_row + 1):
             row_hidden = False
             
@@ -111,24 +112,39 @@ def seplan_or_download():
                         continue 
 
                     excel_cell_value = ws.cell(row=r_idx, column=col_idx).value
-                    cell_val_str = str(excel_cell_value).lower() if excel_cell_value is not None else ""
+                    cell_val_str = str(excel_cell_value).strip().lower() if excel_cell_value is not None else ""
 
-                    if param_value not in cell_val_str:
+                    is_match = False
+                    # --- Lógica de filtro para Ano e Mês (revertida para string exata) ---
+                    if param_name in ["ano", "mes"]: 
+                        if param_value == cell_val_str: # Comparação de string exata (após strip().lower())
+                            is_match = True
+                    else: # Para outros campos de texto: lógica de "contém"
+                        if param_value in cell_val_str:
+                            is_match = True
+                    
+                    if not is_match:
                         row_hidden = True
                         break 
 
             ws.row_dimensions[r_idx].hidden = row_hidden
+            
+            # --- APLICAR FORMATAÇÃO BÁSICA (Bordas e Fonte) para Linhas VISÍVEIS ---
+            # Isso garante que as grades e a fonte sejam aplicadas consistentemente.
+            if not row_hidden:
+                for c_idx in range(data_start_col, max_excel_col + 1): # Itera por todas as colunas de dados
+                    cell = ws.cell(row=r_idx, column=c_idx)
+                    cell.border = thin_border # Aplica as bordas
+                    cell.font = data_font    # Aplica a fonte
 
-        # --- 2. Ocultar Colunas de Mês e Ano ---
-        col_mes_excel_idx = excel_header_map.get("MES_REFERENCIA")
-        col_ano_excel_idx = excel_header_map.get("ANO_REFERENCIA")
+                    # Opcional: ajustar alinhamento para números se necessário
+                    if isinstance(cell.value, (int, float)):
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
 
-        if col_mes_excel_idx:
-            ws.column_dimensions[get_column_letter(col_mes_excel_idx)].hidden = True
-        if col_ano_excel_idx:
-            ws.column_dimensions[get_column_letter(col_ano_excel_idx)].hidden = True
 
-        # --- 3. Aplicar Filtros (Triângulos) na Tabela de Dados ---
+        # --- Aplicar Filtros (Triângulos) na Tabela de Dados ---
         filter_start_col_letter = get_column_letter(data_start_col)
         filter_start_row = header_row_index
 
@@ -138,7 +154,7 @@ def seplan_or_download():
         filter_range = f"{filter_start_col_letter}{filter_start_row}:{filter_end_col_letter}{filter_end_row}"
         ws.auto_filter.ref = filter_range
 
-        # --- 4. Congelar Painéis ---
+        # --- Congelar Painéis ---
         ws.freeze_panes = f"{get_column_letter(data_start_col)}{header_row_index + 1}"
 
 
@@ -147,7 +163,7 @@ def seplan_or_download():
         xlsx_data.seek(0)
 
         response = make_response(xlsx_data.getvalue())
-        response.headers["Content-Disposition"] = "attachment; filename=DadosOrcamentoConsolidado.xlsx"
+        response.headers["Content-Disposition"] = "attachment; filename=DadosOrcamentoConsolidado (2).xlsx"
         response.headers["Content-type"] = (
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
@@ -161,15 +177,12 @@ def seplan_or_download():
         pass
 
 
-# --- Rotas Adicionais ---
-# Esta rota renderiza o arquivo HTML que você forneceu
 @app.route("/seplan_or/", methods=["GET"])
 @app.route("/seplan_or", methods=["GET"])
 def seplan_or():
     return render_template("seplan_or.html")
 
 
-# Rota raiz do aplicativo
 @app.route("/", methods=["GET"])
 def index():
     return "Extrator DGT - Versão Pública - Gerador de Relatórios Orçamentários."
