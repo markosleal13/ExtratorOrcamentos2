@@ -22,7 +22,7 @@ def seplan_or_download():
         print(f"\n--- DEBUG INÍCIO: Valor RAW de 'gnd' da URL: '{gnd_raw_from_url}' (Tipo: {type(gnd_raw_from_url)}) ---")
         # --------------------------------
 
-        excel_file_path = os.path.join(app.root_path, 'templates', 'DadosOrcamentoConsolidadoGeral2.xlsx')
+        excel_file_path = os.path.join(app.root_path, 'templates', 'DadosOrcamentoConsolidadoGeral3.xlsx')
         
         if not os.path.exists(excel_file_path):
             abort(404, description=f"Arquivo de base de dados '{os.path.basename(excel_file_path)}' não encontrado na pasta 'templates'.")
